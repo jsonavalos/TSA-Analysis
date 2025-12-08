@@ -1,12 +1,12 @@
 ---
-title: "tsa_project"
+title: "Future-Proofing TSA Operations: Data-Driven Resource Optimization"
 format: html
 ---
 
 ```{r}
 library(readxl)
-install.packages('fpp3')
-install.packages("urca")
+#install.packages('fpp3')
+#install.packages("urca")
 library(fpp3)
 library(tidyverse)
 library(fpp3)
@@ -273,12 +273,14 @@ train |> fabletools::features(Total |>  difference(lag=1) , c(unitroot_kpss, uni
 
 ```{r}
 # plot differenced series and ACF/PACF plots with non-seasonal and seasonal differencing
-
 train |>
   feasts::gg_tsdisplay(
     Total |> difference(lag = 1),
     plot_type = "partial"
-  )
+  ) +
+  ggplot2::scale_y_continuous(labels = label_number(scale_cut = cut_short_scale()))
+
+
 ```
 
 ```{r}
@@ -326,6 +328,21 @@ accuracy_combined <- forecast_all_models |>
 accuracy_combined |> knitr::kable()
 ```
 
+```{r}
+# Plot forecasts from all models, restricted to 2023 onward
+forecast_all_models %>%
+  filter(year(Month) >= 2023) %>%
+  autoplot(tsa_clean %>% filter(year(Month) >= 2023), level = NULL) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(
+    title = "Forecast Comparison (2023–2026)",
+    y = "Passengers",
+    x = NULL
+  ) +
+  theme_minimal()
+```
+
+
 Based on test-set RMSE, the ARIMA(1,1,0)(1,1,0) model (ar1_manual) achieved the best out-of-sample performance (RMSE ≈ 5.7M), outperforming both ETS and the alternative ARIMA specifications. Although ma1_manual had slightly better AICc on the training data, ar1_manual provided superior accuracy on the holdout period, so we select ar1_manual as our final model. Log-transformed and pandemic-adjusted models all produced substantially larger RMSE values and were discarded.
 
 # Accuracy Comparison with Cross-validation
@@ -362,14 +379,13 @@ Although ETS produced the best accuracy on the single 12-month hold-out set, its
 **Workforce Prediction**
 
 ```{r}
-# ---- Updated Workforce Assumptions (Based on TSA lane throughput) ----
+# Workforce Assumptions (Based on TSA lane throughput)
+current_agents <- 47500
 
-current_agents <- 47500  # total TSOs (from DHS / TSA stats)
-
-# Lane throughput per hour (typical)
+# Lane capacity per hour (assumed)
 pax_per_lane_hour <- 180
 
-# Operating hours per lane per day
+# Daily Operating hours per lane
 hours_per_day_lane <- 16
 
 # Days per month
@@ -381,26 +397,24 @@ tsos_per_lane <- 8
 # Monthly lane capacity
 pax_per_lane_month <- pax_per_lane_hour * hours_per_day_lane * days_per_month
 
-# Share of total workforce assigned to screening lanes -- Assumption
+# Share of total workforce assigned to screen (assumption)
 screening_duty_fraction <- 0.5
 
 # Active checkpoint workforce
 active_screening_tsos <- current_agents * screening_duty_fraction
 
-# Passengers each TSO effectively supports per month
+# Passengers each TSO effectively supports/month
 passengers_per_agent_month <- pax_per_lane_month / tsos_per_lane
 ```
 
 ```{r}
-# ar1_manual is your chosen final model
+# ma1_manual is your chosen final model
 fc_final <- all_models |>
   select(ma1_manual) |>
-  forecast(h = nrow(test))   # .mean column is created here
+  forecast(h = nrow(test))
 ```
 
 ```{r}
-# ---- Workforce Prediction based on ARIMA(1,1,0)(0,1,0) ----
-
 buffer_factor <- 1.10  # 10% safety buffer
 
 tsa_agents_forecast <- fc_final |>
@@ -414,8 +428,6 @@ tsa_agents_forecast <- fc_final |>
 ```
 
 ```{r}
-# tsa_agents_forecast already created as above
-
 tsa_dual <- tsa_agents_forecast |>
   as_tibble() |>
   transmute(
@@ -428,22 +440,20 @@ tsa_dual <- tsa_agents_forecast |>
     cols      = -Month,
     names_to  = "metric",
     values_to = "value"
-  )
+  ) |>
+  drop_na(value)
 
 ggplot(tsa_dual, aes(x = Month, y = value)) +
   geom_line() +
   geom_point() +
   facet_wrap(~ metric, scales = "free_y", ncol = 1) +
   labs(
-    title = "TSA Monthly Passenger Forecast and Workforce Demand\nModel: ARIMA(1,1,0)(0,1,0) with 10% Safety Buffer",
+    title = "TSA Monthly Passenger Forecast and Workforce Demand\nModel: ARIMA(0,1,1)(0,1,0) with 10% Safety Buffer",
     x = "Month",
     y = NULL
   ) +
   scale_y_continuous(
-    labels = label_number(
-      scale_cut = cut_short_scale(),
-      accuracy  = 0.01
-    )
+    labels = scales::label_number(accuracy = 0.01)   # <-- removed scale_cut
   ) +
   theme_minimal() +
   theme(
@@ -453,11 +463,11 @@ ggplot(tsa_dual, aes(x = Month, y = value)) +
 
 **Insight:** Nearly 200 TSA Officers are paid by the government but work full-time on union matters. These people do not retain certification to perform screening functions. Additionally, in a recent TSA employee survey, over 60% said poor performers are allowed to stay employed and, not surprisingly, continue to not perform.
 
-**Source:** https://www.dhs.gov/news/2025/03/07/dhs-ends-collective-bargaining-tsas-transportation-security-officers-enhancing
+**Source: ** https://www.dhs.gov/news/2025/03/07/dhs-ends-collective-bargaining-tsas-transportation-security-officers-enhancing
 
-**Recommendation** We recommend that TSA adopt a Monthly Forecasting Cadence anchored by the ARIMA(1,1,0)(0,1,0) model to guide checkpoint workforce planning. This forecasting approach provides TSA with a reliable month-ahead view of expected passenger volumes, enabling proactive and data-driven staffing decisions.
+Recommendation We recommend that TSA adopt a Monthly Forecasting Cadence anchored by the ARIMA(0,1,1)(0,1,0) model to guide checkpoint workforce planning. This forecasting approach provides TSA with a reliable month-ahead view of expected passenger volumes, enabling proactive and data-driven staffing decisions.
 
-Using TSA’s own operational throughput standards (180 passengers per lane per hour, \~8 TSOs required per lane across shifts) and assuming that approximately 50% of the agency’s 47,500 officers rotate through screening duties, our workforce model shows that TSA will need only 7,000–8,500 officers per month on screening duty throughout 2024. Even after applying a 10% safety buffer to account for forecast uncertainty, this represents only 25–36% of the available screening workforce.
+Using TSA’s own operational throughput standards (180 passengers per lane per hour, ~8 TSOs required per lane across shifts) and assuming that approximately 50% of the agency’s 47,500 officers rotate through screening duties, our workforce model shows that TSA will need only 7,000–8,500 officers per month on screening duty throughout 2024. Even after applying a 10% safety buffer to account for forecast uncertainty, this represents only 25–36% of the available screening workforce.
 
 This reveals a significant and consistent capacity margin that TSA can strategically leverage. Monthly forecasting enables TSA to:
 
@@ -469,18 +479,18 @@ Reduce unnecessary overstaffing during shoulder travel months
 
 Prepare earlier for predictable surges, decreasing reliance on overtime and last-minute staffing during holiday and summer peaks
 
-Enhance TSO well-being by smoothing workload intensity and improving shift predictability
+Enhance TSA well-being by smoothing workload intensity and improving shift predictability
 
-By aligning staffing to model-based demand—and doing so monthly—TSA can maintain its \<30-minute wait-time service level while operating more efficiently, reducing operational strain, and improving workforce readiness without reducing headcount.
+By aligning staffing to model-based demand—and doing so monthly—TSA can maintain its <30-minute wait-time service level while operating more efficiently, reducing operational strain, and improving workforce readiness without reducing headcount.
 
 ```{r}
 library(dplyr)
 library(lubridate)
 library(tsibble)
-library(scales) # Needed for commas and %
-library(knitr)  # Needed for the table
+library(scales)
+library(knitr)
 
-# --- STEP 1: PREPARE DATA (Same as before) ---
+# Prep data
 tsa_yearly <- tsa_clean %>%
   as_tibble() %>%
   ungroup() %>%
@@ -511,22 +521,17 @@ tsa_overall <- tsa_clean %>%
 
 tsa_raw_data <- bind_rows(tsa_overall, tsa_yearly)
 
-# --- STEP 2: FORMAT & DISPLAY (The Crash-Proof Way) ---
-
+# Format and display table
 tsa_raw_data %>%
-  # 1. Format the numbers into text strings manually
   mutate(
     `Total Passengers` = comma(yearly_total),  # Adds commas: 1,000,000
     `Avg Monthly`      = comma(mean_monthly, accuracy = 1),
     `Median Monthly`   = comma(median_monthly, accuracy = 1),
-    # Handle the NA growth rates nicely
     `YoY Growth`       = if_else(is.na(yoy_growth), "—", percent(yoy_growth, accuracy = 0.1))
   ) %>%
-  # 2. Select columns to show
   select(Year, `Total Passengers`, `YoY Growth`, `Avg Monthly`, `Median Monthly`) %>%
-  # 3. Render with kable (Standard Markdown Table)
   kable(
-    align = "r", # Right-align numbers
+    align = "r",
     caption = "TSA Passenger Throughput (2019-2025)"
   )
 ```
@@ -535,24 +540,18 @@ tsa_raw_data %>%
 tsa_clean %>%
   as_tibble() %>%
   mutate(
-    # Create a "Month Name" column for the X-axis
     Month_Label = month(Month, label = TRUE, abbr = TRUE),
-    # Extract numeric month for sorting
     Month_Num = month(Month),
     Year_Factor = as.factor(year(Month))
   ) %>%
   ggplot(aes(x = Month_Label, y = Total, group = Year_Factor, color = Year_Factor)) +
-
-  # 1. Lines
   geom_line(size = 1) +
   geom_point(size = 2) +
 
-  # 2. Highlight 2019 (Baseline) and 2025 (Current) specifically if you want
-  # (This color scale highlights 2019 in Black, 2020 in Red, others in Greys/Blues)
-  # You can remove scale_color_manual to use default colors
+  # Highlight 2019 (Baseline) and 2025 (Current)
   scale_color_viridis_d(option = "turbo", direction = -1) +
 
-  # 3. Formatting
+  # Format chart
   scale_y_continuous(labels = label_number(scale = 1e-6, suffix = " M")) +
 
   theme_minimal() +
@@ -566,14 +565,11 @@ tsa_clean %>%
 ```
 
 ```{r}
-# --- Step 1: Define Operational Constants ---
-# I estimated these based on your charts (85M pax ~= 8000 agents).
-# Adjust 'total_staff_available' to your actual total TSA workforce count.
+# Max passengers - 85M pax ~= 8000 agents
 pax_per_agent_ratio <- 10625
 total_staff_available <- 23530
 
-# --- Step 2: Refit Model & Forecast ---
-# Refit the winner: ARIMA(1,1,0)(1,1,0) to the full dataset
+# Refit ARIMA(0,1,1)(0,1,0) to full dataset
 fit_final <- tsa_clean %>%
   model(
    ma1_manual = ARIMA(Total ~ pdq(0,1,1) + PDQ(0,1,0))
@@ -583,25 +579,18 @@ fit_final <- tsa_clean %>%
 fc_2026 <- fit_final %>%
   forecast(h = "14 months")
 
-# --- Step 3: Calculate the Metrics (Create tsa_agents_forecast) ---
+# Calculate the Metrics
 tsa_agents_forecast <- fc_2026 %>%
   as_tibble() %>%
   mutate(
-    # 1. The Safety Buffer (10%)
     pax_forecast_high = .mean * 1.10,
-
-    # 2. Agents Required (rounded up to be safe)
     agents_required_ceiling = ceiling(pax_forecast_high / pax_per_agent_ratio),
-
-    # 3. % Workforce Needed
     pct_of_screening_staff = agents_required_ceiling / total_staff_available
   ) %>%
-  # Select only the columns needed for the next step
   select(Month, pax_forecast_high, agents_required_ceiling, pct_of_screening_staff)
 ```
 
 ```{r}
-# --- Step 4: Reshape for Faceted Plotting (Your Method) ---
 tsa_dual <- tsa_agents_forecast %>%
   transmute(
     Month,
@@ -613,31 +602,25 @@ tsa_dual <- tsa_agents_forecast %>%
     cols = -Month,
     names_to = "metric",
     values_to = "value"
-  )
+  ) %>%
+  drop_na(value)   
 
-# --- Step 5: Generate the Chart ---
 ggplot(tsa_dual, aes(x = Month, y = value)) +
   geom_line() +
   geom_point() +
-  # Using 'free_y' allows the % and raw numbers to coexist nicely
   facet_wrap(~ metric, scales = "free_y", ncol = 1) +
   labs(
     title = "2026 Resource Outlook: Forecast & Workforce Demand",
-    subtitle = "Model: ARIMA(1,1,0)(1,1,0) | Metric: Forecast + 10% Safety Buffer",
+    subtitle = "Model: ARIMA(0,1,1)(0,1,0) | Metric: Forecast + 10% Safety Buffer",
     x = "Month",
     y = NULL
   ) +
-  scale_y_continuous(
-    labels = label_number(
-      scale_cut = cut_short_scale(),
-      accuracy = 0.01
-    )
-  ) +
+  scale_y_continuous(labels = scales::label_number(accuracy = 0.01)) +  # <-- safer
   theme_minimal() +
   theme(
     strip.text = element_text(size = 12, face = "bold"),
     plot.title = element_text(face = "bold")
   )
-```
 
+```
 
