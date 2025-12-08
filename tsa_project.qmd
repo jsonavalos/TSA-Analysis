@@ -1,6 +1,6 @@
 ---
 title: "Future-Proofing TSA Operations: Data-Driven Resource Optimization"
-format: html
+format: pdf
 ---
 
 ```{r}
