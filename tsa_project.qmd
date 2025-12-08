@@ -1,15 +1,9 @@
 ---
-title: Future-Proofing TSA Operations: Data-Driven Resource Optimization
-jupyter:
-  kernelspec:
-    display_name: R
-    name: ir
-    language: r
+title: "tsa_project"
+format: html
 ---
 
 ```{r}
-#| colab: {base_uri: https://localhost:8080/}
-#| collapsed: true
 library(readxl)
 install.packages('fpp3')
 install.packages("urca")
@@ -20,15 +14,27 @@ library(slider)
 library(urca)
 library(scales)
 ```
-
+## Exploratory Data Analysis
 ```{r}
 tsa_clean <- read_excel(here::here("Data", "TSA.xlsx"))
 ```
 
 ```{r}
-#| colab: {base_uri: https://localhost:8080/, height: 286}
 head(tsa_clean)
 ```
+
+```{r}
+library(ggplot2)
+autoplot(tsa_clean |> mutate(Date = as.Date(Date)) |> as_tsibble(index = Date) , Numbers) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(
+    title = "TSA Daily Passenger Volume",
+    y = "Passengers",
+    x = NULL
+  ) +
+  theme_minimal()
+```
+
 
 ```{r}
 # Glimpse at dataset
@@ -633,3 +639,5 @@ ggplot(tsa_dual, aes(x = Month, y = value)) +
     plot.title = element_text(face = "bold")
   )
 ```
+
+
